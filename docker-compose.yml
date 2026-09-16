@@ -1,0 +1,30 @@
+# ============================================================
+# Personal Finance App — Docker Compose
+# - app : PHP-FPM (Slim backend)  -> konek ke Supabase (PostgreSQL)
+# - web : nginx (frontend Lit dist) + proxy /api ke app
+#
+# Prasyarat: Docker + Docker Compose TERPASANG, dan host ini
+# boleh akses outbound keluar ke Supabase pooler port 5432/6543.
+# Jika egress Anda hanya HTTP(S) (80/443), backend TIDAK akan
+# bisa connect — jalankan compose ini dari host yang egress-nya terbuka.
+# ============================================================
+services:
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    expose:
+      - "9000"
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      - app
+    restart: unless-stopped
