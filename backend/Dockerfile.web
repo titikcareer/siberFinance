@@ -1,0 +1,38 @@
+# ============================================================
+# Image web server tunggal untuk deployment PaaS (mis. Render),
+# memakai PHP built-in server. Tanpa ini Anda akan lari docker/npm
+# lokal karena image fpm (Dockerfile) tidak punya listener HTTP.
+#
+# Deploy: Render -> Web Service -> Runtime: Docker -> Dockerfile: Dockerfile.web
+#   - Render menyuntikkan $PORT; app harus listen di port itu.
+#   - Data tetap di Supabase (PostgreSQL cloud), bukan di instance ini.
+# ============================================================
+FROM php:8.2-cli
+
+# pdo_pgsql butuh libpq-dev; git+unzip untuk Composer
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq-dev git unzip \
+    && docker-php-ext-install pdo_pgsql \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/backend
+
+# Install dependensi produksi (lock file menjamin versi deterministik)
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress --prefer-dist
+
+COPY src ./src
+COPY public ./public
+
+# Variabel env (DB_*, JWT_*, SYNC_*) harus terlihat di $_ENV.
+# PHP-CLI default variables_order = "GPCS" (tanpa 'E'), sedangkan
+# Database::connection() membaca $_ENV -> tanpa ini koneksi DB gagal.
+RUN echo 'variables_order = "EGPCS"' > /usr/local/etc/php/conf.d/zz-app.ini
+
+EXPOSE 8080
+
+# Sama dengan `composer start`, tapi bind ke port yang diberikan platform.
+CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-8080} -t public public/index.php"]

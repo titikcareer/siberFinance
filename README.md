@@ -70,9 +70,67 @@ npm run dev             # http://localhost:5173
 > Catatan: `npm install` & `npm run build` sudah diverifikasi berhasil berulang kali di lingkungan pengembangan ini.
 > `composer install` perlu dijalankan di mesin Anda sendiri (sandbox pengembangan ini tidak memiliki akses ke Packagist), namun seluruh file `.php` sudah lolos `php -l` di setiap iterasi perubahan.
 
+## Deploy Online Gratis ke Render (tanpa menjalankan Docker/NPM di mesin lokal)
+
+Data sudah di **Supabase (PostgreSQL cloud)**, jadi yang perlu di-host hanyalah backend API
+dan file statis frontend. Render (render.com) menarik dari GitHub: setiap `git push` ke `main`
+otomatis di-build & di-deploy di cloud — mesin lokal tidak perlu `docker` maupun `npm` lagi.
+
+Arsitektur di Render (semua gratis):
+- **Web Service** (backend API; instance Free — tidur setelah 15 menit idle, ~1 menit bangun) → `backend/Dockerfile.web`
+- **Static Site** (frontend Lit; CDN, selalu hidup) → build `npm run build`, publish `frontend/dist`
+
+### 1. Push kode
+```bash
+git add -A && git commit -m "ci: dockerfile.web + health route + gitignore" && git push
+```
+`backend/.env` kini di-ignore (jangan pernah commit secret — repo public).
+
+### 2. Buat Web Service (backend)
+1. render.com → **New → Web Service** → hubungkan repo `titikcareer/siberFinance`.
+2. **Root Directory**: `backend` · **Runtime**: `Docker` · **Dockerfile Path**: `Dockerfile.web` · **Instance Type**: `Free`.
+3. **Health Check Path**: `/api/v1/health`.
+4. **Environment** (isi dari `backend/.env.example` + kredensial Supabase Anda):
+   ```
+   DB_DRIVER=pgsql
+   DB_HOST=aws-0-REGION.pooler.supabase.com
+   DB_PORT=5432
+   DB_DATABASE=postgres
+   DB_USERNAME=postgres.PROJECT_REF
+   DB_PASSWORD=YOUR_DB_PASSWORD
+   DB_SSLMODE=require
+   JWT_SECRET=<openssl rand -base64 32>
+   JWT_EXPIRY_SECONDS=3600
+   JWT_REFRESH_EXPIRY_SECONDS=1209600
+   SYNC_ENCRYPTION_KEY=<openssl rand -base64 32>
+   APP_ENV=production
+   APP_DEBUG=false
+   CORS_ALLOWED_ORIGIN=https://<frontend>.onrender.com   # awali dengan * dulu, ganti setelah frontend jadi
+   ```
+5. Deploy → catat URL-nya, mis. `https://finance-api.onrender.com`.
+
+### 3. Buat Static Site (frontend)
+1. render.com → **New → Static Site** → repo yang sama.
+2. **Root Directory**: `frontend` · **Build Command**: `npm run build` · **Publish Directory**: `dist`.
+3. **Environment**: `VITE_API_BASE_URL=https://finance-api.onrender.com/api/v1`.
+4. Deploy → catat URL-nya, mis. `https://finance-app.onrender.com`.
+
+### 4. Finalisasi CORS
+Kembali ke backend → ubah `CORS_ALLOWED_ORIGIN` menjadi `https://finance-app.onrender.com` → redeploy.
+Verifikasi:
+```bash
+curl https://finance-api.onrender.com/api/v1/health        # {"status":"ok",...}
+curl https://finance-api.onrender.com/api/v1/accounts      # 401 (harus login)
+```
+Buka URL frontend → register → login. Selesai.
+
+> Catatan: pada free tier, backend tidur setelah 15 menit tanpa traffic; request pertama
+> memakan ~1 menit (Render menampilkan halaman loading). Upgrade ke `Starter` ($7/bulan)
+> bila ingin selalu responsif instan.
+
 ## Keterbatasan yang Masih Perlu Diperhatikan (bukan bug, tapi catatan produksi)
 1. **Scheduler recurring** — saat ini generate dipicu manual/saat dashboard dibuka (client-triggered). Untuk produksi, tambahkan cron job server-side yang memanggil `RecurringTransactionService` harian agar tetap jalan walau user tidak membuka app.
 2. **Konsolidasi CRDT** — strategi konflik sync saat ini last-write-wins sederhana berbasis timestamp; untuk skenario multi-device sangat intensif, pertimbangkan vector clock per field.
 3. **Validasi form kategori pada Budget** — form "Budget Kategori" di frontend saat ini meminta category_id manual (UUID); untuk UX lebih baik, ganti dengan dropdown yang mengambil dari `api.listCategories()`.
 4. **Testing otomatis** — PHPUnit untuk backend dan Web Test Runner/Playwright untuk komponen Lit belum dibuat.
-5. **Deployment** — containerize dengan Docker Compose (PHP-FPM + Nginx + MySQL) untuk kemudahan onboarding tim.
+5. **Deployment** — sudah tersedia jalur gratis ke Render (lihat bagian *Deploy Online Gratis ke Render* di atas). Opsi Docker Compose (PHP-FPM + Nginx) tetap tersedia di repo untuk self-host di VPS bila diperlukan.

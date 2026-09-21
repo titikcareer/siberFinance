@@ -14,10 +14,18 @@ use App\Controllers\SimulatorController;
 use App\Controllers\SyncController;
 use App\Controllers\TransactionController;
 use App\Middleware\JwtAuthMiddleware;
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\App;
 use Slim\Routing\RouteCollectorProxy;
 
 return function (App $app) {
+    // --- Health check (health-check path PaaS / uptime monitoring) ---
+    $app->get('/api/v1/health', function (Request $request, Response $response) {
+        $response->getBody()->write(json_encode(['status' => 'ok', 'time' => gmdate('c')]));
+        return $response->withHeader('Content-Type', 'application/json');
+    });
+
     // --- Public routes ---
     $app->group('/api/v1/auth', function (RouteCollectorProxy $group) {
         $group->post('/register', [AuthController::class, 'register']);
